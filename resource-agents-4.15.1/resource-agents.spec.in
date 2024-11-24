@@ -1,0 +1,390 @@
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+#
+
+%global rcver @rcver@
+%global alphatag @alphatag@
+%global numcomm @numcomm@
+%global dirty @dirty@
+
+# Whether this platform defaults to using systemd as an init system
+# (needs to be evaluated prior to BuildRequires being enumerated and
+# installed as it's intended to conditionally select some of these, and
+# for that there are only few indicators with varying reliability:
+# - presence of systemd-defined macros (when building in a full-fledged
+#   environment, which is not the case with ordinary mock-based builds)
+# - systemd-aware rpm as manifested with the presence of particular
+#   macro (rpm itself will trivially always be present when building)
+# - existence of /usr/lib/os-release file, which is something heavily
+#   propagated by systemd project
+# - when not good enough, there's always a possibility to check
+#   particular distro-specific macros (incl. version comparison)
+%define systemd_native (%{?_unitdir:1}%{!?_unitdir:0}%{nil \
+  } || %{?__transaction_systemd_inhibit:1}%{!?__transaction_systemd_inhibit:0}%{nil \
+  } || %(test -f /usr/lib/os-release; test $? -ne 0; echo $?))
+
+# SSLeay (required by ldirectord)
+%if 0%{?suse_version}
+%global SSLeay perl-Net_SSLeay
+%else
+%global SSLeay perl-Net-SSLeay
+%endif
+
+# determine the ras-set to process based on configure invokation
+%bcond_@rgmanager@ rgmanager
+%bcond_@linux-ha@ linuxha
+
+Name:		resource-agents
+Summary:	Open Source HA Reusable Cluster Resource Scripts
+Version:	@version@
+Release:	@specver@%{?rcver:%{rcver}}%{?numcomm:.%{numcomm}}%{?alphatag:.%{alphatag}}%{?dirty:.%{dirty}}%{?dist}
+License:	GPL-2.0-or-later AND LGPL-2.1-or-later
+URL:		https://github.com/ClusterLabs/resource-agents
+Source0:	%{name}-%{version}%{?rcver:%{rcver}}%{?numcomm:.%{numcomm}}%{?alphatag:-%{alphatag}}%{?dirty:-%{dirty}}.tar.bz2
+Obsoletes:	heartbeat-resources <= %{version}
+Provides:	heartbeat-resources = %{version}
+
+# Build dependencies
+BuildRequires: make
+BuildRequires: automake autoconf pkgconfig gcc
+BuildRequires: perl
+BuildRequires: libxslt glib2-devel libqb-devel
+BuildRequires: systemd
+BuildRequires: which
+
+%if 0%{?fedora} || 0%{?centos} > 7 || 0%{?rhel} > 7 || 0%{?suse_version}
+BuildRequires: python3-devel
+%else
+BuildRequires: python-devel
+%endif
+
+%ifarch x86_64
+%if 0%{?fedora} || 0%{?centos} > 7 || 0%{?rhel} > 7
+BuildRequires: python3-pyroute2
+%endif
+%endif
+
+%if 0%{?fedora} || 0%{?centos} || 0%{?rhel}
+BuildRequires: docbook-style-xsl docbook-dtds
+%if 0%{?rhel} == 0
+BuildRequires: libnet-devel
+%endif
+%endif
+
+%if 0%{?suse_version}
+BuildRequires:  libnet-devel
+%if 0%{?suse_version} > 1500
+BuildRequires:  cluster-glue-devel
+%else
+BuildRequires:  libglue-devel
+%endif
+BuildRequires:  libxslt docbook_4 docbook-xsl-stylesheets
+%endif
+
+## Runtime deps
+# system tools shared by several agents
+Requires: /bin/bash /usr/bin/grep /bin/sed /bin/gawk
+Requires: /bin/ps /usr/bin/pkill /usr/bin/hostname /usr/bin/netstat
+Requires: /bin/mount
+%if 0%{?suse_version}
+Requires: /usr/bin/fuser
+%else
+Requires: /usr/sbin/fuser
+%endif
+
+# Filesystem / fs.sh / netfs.sh
+%if 0%{?fedora} > 39 || 0%{?suse_version}
+Requires: /usr/sbin/fsck
+%else
+Requires: /sbin/fsck
+%endif
+Requires: /usr/sbin/fsck.ext2 /usr/sbin/fsck.ext3 /usr/sbin/fsck.ext4
+Requires: /usr/sbin/fsck.xfs
+%if 0%{?fedora} > 40 || 0%{?suse_version}
+Requires: /usr/sbin/mount.nfs /usr/sbin/mount.nfs4
+%else
+Requires: /sbin/mount.nfs /sbin/mount.nfs4
+%endif
+%if (0%{?fedora} && 0%{?fedora} < 33) || (0%{?rhel} && 0%{?rhel} < 9) || (0%{?centos} && 0%{?centos} < 9) || 0%{?suse_version}
+%if (0%{?rhel} && 0%{?rhel} < 8) || (0%{?centos} && 0%{?centos} < 8)
+Requires: /usr/sbin/mount.cifs
+%else
+Recommends: /usr/sbin/mount.cifs
+%endif
+%endif
+
+# IPaddr2
+Requires: /sbin/ip
+
+# LVM / lvm.sh
+Requires: /usr/sbin/lvm
+
+# nfsserver / netfs.sh
+%if 0%{?fedora} > 40 || 0%{?suse_version}
+Requires: /usr/sbin/rpc.statd
+%else
+Requires: /sbin/rpc.statd
+%endif
+Requires: /usr/sbin/rpc.nfsd /usr/sbin/rpc.mountd
+
+# rgmanager
+%if %{with rgmanager}
+# ip.sh
+Requires: /usr/sbin/ethtool
+Requires: /sbin/rdisc /usr/sbin/arping /bin/ping /bin/ping6
+
+# nfsexport.sh
+%if 0%{?fedora} > 39
+Requires: /usr/sbin/findfs
+Requires: /usr/sbin/quotaon /usr/sbin/quotacheck
+%else
+Requires: /sbin/findfs
+Requires: /sbin/quotaon /sbin/quotacheck
+%endif
+%endif
+
+%description
+A set of scripts to interface with several services to operate in a
+High Availability environment for both Pacemaker and rgmanager
+service managers.
+
+%if %{with linuxha}
+%package -n ldirectord
+License:	GPL-2.0-or-later
+Summary:	A Monitoring Daemon for Maintaining High Availability Resources
+Obsoletes:	heartbeat-ldirectord <= %{version}
+Provides:	heartbeat-ldirectord = %{version}
+%if 0%{?fedora} > 18 || 0%{?centos} > 6 || 0%{?rhel} > 6
+BuildRequires: perl-podlators
+%endif
+Requires:       %{SSLeay} perl-libwww-perl perl-MailTools
+Requires:       ipvsadm logrotate
+%if 0%{?fedora}
+Requires:	perl-Net-IMAP-Simple-SSL perl-IO-Socket-INET6
+%endif
+%if 0%{?fedora} < 34
+Requires(post):  /sbin/chkconfig
+Requires(preun): /sbin/chkconfig
+%endif
+%if %{systemd_native}
+BuildRequires:  systemd
+%endif
+%{?systemd_requires}
+
+%description -n ldirectord
+The Linux Director Daemon (ldirectord) was written by Jacob Rief.
+<jacob.rief@tiscover.com>
+
+ldirectord is a stand alone daemon for monitoring the services on real
+servers. Currently, HTTP, HTTPS, and FTP services are supported.
+ldirectord is simple to install and works with Pacemaker
+(http://clusterlabs.org/).
+
+See 'ldirectord -h' and linux-ha/doc/ldirectord for more information.
+%endif
+
+%prep
+%if 0%{?suse_version} == 0 && 0%{?fedora} == 0 && 0%{?centos} == 0 && 0%{?rhel} == 0
+%{error:Unable to determine the distribution/version. This is generally caused by missing /etc/rpm/macros.dist. Please install the correct build packages or define the required macros manually.}
+exit 1
+%endif
+%autosetup -n %{name}-%{version}%{?rcver:%{rcver}}%{?numcomm:.%{numcomm}}%{?alphatag:-%{alphatag}}%{?dirty:-%{dirty}} -p1
+
+%build
+if [ ! -f configure ]; then
+	./autogen.sh
+fi
+
+%if 0%{?fedora} >= 11 || 0%{?centos} > 5 || 0%{?rhel} > 5
+CFLAGS="$(echo '%{optflags}')"
+%global conf_opt_fatal "--enable-fatal-warnings=no"
+%else
+CFLAGS="${CFLAGS} ${RPM_OPT_FLAGS}"
+%global conf_opt_fatal "--enable-fatal-warnings=yes"
+%endif
+
+%if %{with rgmanager}
+%global rasset rgmanager
+%endif
+%if %{with linuxha}
+%global rasset linux-ha
+%endif
+%if %{with rgmanager} && %{with linuxha}
+%global rasset all
+%endif
+
+export CFLAGS
+
+%configure \
+%if 0%{?fedora} || 0%{?centos} > 7 || 0%{?rhel} > 7 || 0%{?suse_version}
+	PYTHON="%{__python3}" \
+%endif
+	%{conf_opt_fatal} \
+%if %{defined _unitdir}
+    SYSTEMD_UNIT_DIR=%{_unitdir} \
+%endif
+%if %{defined _tmpfilesdir}
+    SYSTEMD_TMPFILES_DIR=%{_tmpfilesdir} \
+    --with-rsctmpdir=/run/resource-agents \
+%endif
+	--with-pkg-name=%{name} \
+	--with-ras-set=%{rasset}
+
+make %{_smp_mflags}
+
+%install
+rm -rf %{buildroot}
+make install DESTDIR=%{buildroot}
+
+## tree fixup
+# remove docs (there is only one and they should come from doc sections in files)
+rm -rf %{buildroot}/usr/share/doc/resource-agents
+
+%if %{with linuxha}
+%if 0%{?suse_version}
+test -d %{buildroot}/sbin || mkdir %{buildroot}/sbin
+(
+  cd %{buildroot}/sbin
+  ln -sf /%{_sysconfdir}/init.d/ldirectord rcldirectord
+) || true
+%endif
+%endif
+
+%files
+%doc AUTHORS COPYING COPYING.GPLv3 COPYING.LGPL ChangeLog
+%if %{with linuxha}
+%doc heartbeat/README.galera
+%doc doc/README.webapps
+%doc %{_datadir}/%{name}/ra-api-1.dtd
+%doc %{_datadir}/%{name}/metadata.rng
+%endif
+
+%if %{with rgmanager}
+%{_datadir}/cluster
+%{_sbindir}/rhev-check.sh
+%endif
+
+%if %{with linuxha}
+%dir %{_usr}/lib/ocf
+%dir %{_usr}/lib/ocf/resource.d
+%dir %{_usr}/lib/ocf/lib
+
+%{_usr}/lib/ocf/lib/heartbeat
+
+%{_usr}/lib/ocf/resource.d/heartbeat
+%if %{with rgmanager}
+%{_usr}/lib/ocf/resource.d/redhat
+%endif
+
+%{_datadir}/pkgconfig/%{name}.pc
+
+%if %{defined _unitdir}
+%{_unitdir}/resource-agents-deps.target
+%endif
+%if %{defined _tmpfilesdir}
+%{_tmpfilesdir}/%{name}.conf
+%endif
+
+%dir %{_datadir}/%{name}
+%dir %{_datadir}/%{name}/ocft
+%{_datadir}/%{name}/ocft/configs
+%{_datadir}/%{name}/ocft/caselib
+%{_datadir}/%{name}/ocft/README
+%{_datadir}/%{name}/ocft/README.zh_CN
+%{_datadir}/%{name}/ocft/helpers.sh
+%exclude %{_datadir}/%{name}/ocft/runocft
+%exclude %{_datadir}/%{name}/ocft/runocft.prereq
+
+%{_sbindir}/ocf-tester
+%{_sbindir}/ocft
+%if 0%{?suse_version}
+%{_sbindir}/sfex_*
+%endif
+
+%{_includedir}/heartbeat
+
+%if %{defined _tmpfilesdir}
+%dir %attr (1755, root, root)	/run/resource-agents
+%else
+%dir %attr (1755, root, root)	%{_var}/run/resource-agents
+%endif
+
+%{_mandir}/man7/*.7*
+%{_mandir}/man8/ocf-tester.8*
+%if 0%{?suse_version}
+%{_mandir}/man8/sfex_init.8*
+%endif
+
+# For compatability with pre-existing agents
+%dir %{_sysconfdir}/ha.d
+%{_sysconfdir}/ha.d/shellfuncs
+
+%{_libexecdir}/heartbeat
+
+%if %{with rgmanager}
+%post -n resource-agents
+ccs_update_schema > /dev/null 2>&1 ||:
+%endif
+
+%if 0%{?suse_version}
+%preun -n ldirectord
+%stop_on_removal ldirectord
+%postun -n ldirectord
+%insserv_cleanup
+%endif
+
+%if 0%{?fedora}
+%preun -n ldirectord
+%if %{defined _unitdir}
+%systemd_preun ldirectord.service
+%else
+/sbin/chkconfig --del ldirectord
+%endif
+%postun -n ldirectord
+/sbin/ldconfig
+%if %{defined _unitdir}
+%systemd_postun_with_restart ldirectord.service
+%endif
+%post -n ldirectord
+%if %{defined _unitdir}
+%systemd_post ldirectord.service
+%else
+/sbin/chkconfig --add ldirectord
+%endif
+%endif
+%endif
+
+%if %{with linuxha}
+%files -n ldirectord
+%{_sbindir}/ldirectord
+%doc ldirectord/ldirectord.cf COPYING
+%{_mandir}/man8/ldirectord.8*
+%config(noreplace) %{_sysconfdir}/logrotate.d/ldirectord
+%dir %{_sysconfdir}/ha.d
+%dir %{_sysconfdir}/ha.d/resource.d
+%{_sysconfdir}/ha.d/resource.d/ldirectord
+%if %{defined _unitdir}
+%{_unitdir}/ldirectord.service
+%exclude %{_sysconfdir}/init.d/ldirectord
+%exclude %{_sysconfdir}/rc.d/init.d/ldirectord
+%else
+%{_sysconfdir}/init.d/ldirectord
+%endif
+%if 0%{?suse_version}
+/sbin/rcldirectord
+%endif
+%if 0%{?fedora}
+%{_usr}/lib/ocf/resource.d/heartbeat/ldirectord
+%endif
+%endif
+
+%changelog
+* @date@ Autotools generated version <nobody@nowhere.org> - @version@-@specver@-@numcomm@.@alphatag@.@dirty@
+- Autotools generated version
