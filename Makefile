@@ -1,7 +1,7 @@
 #
 # **************************************************************
 # *                                                            *
-# * Author: sunbin (2024)                                      *
+# * Author: sunbin (2025)                                      *
 # * URL: https://ftp.gnu.org/pub/gnu/global/				   *
 # *                                                            *
 # * Copyright notice:                                          *
@@ -19,9 +19,9 @@ build_dir = $(TOPDIR)/build
 resource_agents_dir_name = resource-agents-4.15.1
 
 
-all:  .build_resource_agents
+all: build_resource_agents
 
-.build_resource_agents:
+build_resource_agents:
 	@(if [ -d $(build_dir) ]; then rm -rf $(build_dir); fi)
 	@(mkdir -p $(build_dir))
 	@(mkdir -p $(build_dir)/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS})
@@ -34,6 +34,9 @@ all:  .build_resource_agents
 	@(cp -af $(resource_agents_src_dir)/resource-agents.spec $(build_dir)/SPECS)
 	@echo "---------- build resource_agents ----------"
 	@(rpmbuild -ba --define="_topdir $(build_dir)" $(build_dir)/SPECS/resource-agents.spec)
+
+install:
+	@(rpm -ivh $(build_dir)/RPMS/x86_64/resource-agents-4.15.1-1.x86_64.rpm --force)
 
 clean:
 	-rm -rf $(build_dir)
